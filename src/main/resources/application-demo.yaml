@@ -1,0 +1,5 @@
+boka:
+  demo:
+    admin-password: ${DEMO_ADMIN_PASSWORD}
+    customer1-password: ${DEMO_CUSTOMER1_PASSWORD}
+    customer2-password: ${DEMO_CUSTOMER2_PASSWORD}

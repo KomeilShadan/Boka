@@ -2,64 +2,31 @@ package dev.komeil.boka;
 
 import static org.assertj.core.api.Assertions.*;
 
+import dev.komeil.boka.identity.DemoUsersInitializer;
+import dev.komeil.boka.identity.UserRepository;
 import dev.komeil.boka.provider.Provider;
-import dev.komeil.boka.provider.ProviderRepository;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
-@SpringBootTest(
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = {
-      "management.server.port=0",
-      "spring.datasource.username=unused",
-      "spring.datasource.password=unused",
-      "spring.datasource.url=jdbc:postgresql://localhost/unused"
-    })
-@Import(BokaApplicationIT.Database.class)
-class BokaApplicationIT {
-  @TestConfiguration(proxyBeanMethods = false)
-  static class Database {
-    @Bean
-    @ServiceConnection
-    PostgreSQLContainer postgres() {
-      return new PostgreSQLContainer("postgres:18.6-bookworm");
-    }
-  }
-
-  @Value("${local.server.port}")
-  int port;
-
-  @Value("${local.management.port}")
-  int managementPort;
-
-  @Autowired ProviderRepository providers;
-  @Autowired JdbcTemplate jdbc;
+class BokaApplicationIT extends ApiIntegrationTest {
+  @Autowired UserRepository users;
+  @Autowired PasswordEncoder encoder;
+  @Autowired DemoUsersInitializer initializer;
 
   @Test
   void migratedSchemaPersistsProviderAndServesItThroughHttp() throws Exception {
     providers.deleteAll();
     var provider = providers.saveAndFlush(new Provider("Fictional Provider"));
     assertThat(providers.findById(provider.getId())).isPresent();
-    var response = get(port, "/api/v1/status");
+    var response = get(port, "/api/v1/status", "admin", "integration-admin-password");
     assertThat(response.statusCode()).isEqualTo(200);
     assertThat(response.body()).contains("\"application\":\"boka\"", "\"providerCount\":1");
     assertThat(
             jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-        .isEqualTo(1);
+        .isEqualTo(3);
     assertThatThrownBy(
             () -> jdbc.update("INSERT INTO providers VALUES (gen_random_uuid(), '', true)"))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
@@ -73,18 +40,60 @@ class BokaApplicationIT {
       assertThat(response.statusCode()).isEqualTo(200);
       assertThat(response.body()).isEqualTo("{\"status\":\"UP\"}");
     }
-    assertThat(get(port, "/actuator/health").statusCode()).isEqualTo(404);
-    assertThat(get(managementPort, "/actuator/env").statusCode()).isEqualTo(404);
+    assertThat(get(port, "/actuator/health").statusCode()).isEqualTo(401);
+    assertThat(
+            get(managementPort, "/actuator/env", "admin", "integration-admin-password")
+                .statusCode())
+        .isEqualTo(403);
   }
 
-  private HttpResponse<String> get(int port, String path) throws Exception {
-    try (var client = HttpClient.newHttpClient()) {
-      return client.send(
-          HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
-              .timeout(Duration.ofSeconds(10))
-              .GET()
-              .build(),
-          HttpResponse.BodyHandlers.ofString());
+  @Test
+  void authenticationIsDatabaseBackedStatelessAndDefaultDeny() throws Exception {
+    var anonymous = get(port, "/api/v1/status");
+    assertThat(anonymous.statusCode()).isEqualTo(401);
+    assertThat(anonymous.headers().firstValue("Content-Type")).hasValue("application/problem+json");
+    assertThat(anonymous.headers().firstValue("WWW-Authenticate")).hasValue("Basic realm=\"boka\"");
+    assertThat(anonymous.body())
+        .contains("\"status\":401")
+        .doesNotContain("password", "stackTrace");
+    for (String username : new String[] {"admin", "customer1", "customer2"}) {
+      var response =
+          get(
+              port,
+              "/api/v1/status",
+              username.toUpperCase(Locale.ROOT),
+              "integration-" + username + "-password");
+      assertThat(response.statusCode()).isEqualTo(200);
+      assertThat(response.headers().allValues("Set-Cookie")).isEmpty();
+    }
+    assertThat(get(port, "/api/v1/status", "admin", "wrong").statusCode()).isEqualTo(401);
+    assertThat(get(port, "/api/v1/status", "missing", "wrong").statusCode()).isEqualTo(401);
+    assertThat(get(port, "/api/v1/status").statusCode()).isEqualTo(401);
+    assertThat(get(port, "/api/v1/not-allowed", "admin", "integration-admin-password").statusCode())
+        .isEqualTo(403);
+  }
+
+  @Test
+  void demoPasswordsAreHashedAndReseedingPreservesUsers() {
+    assertThat(users.count()).isEqualTo(3);
+    var hash = users.findByUsername("admin").orElseThrow().getPasswordHash();
+    assertThat(hash).startsWith("$2a$").doesNotContain("integration-admin-password");
+    assertThat(encoder.matches("integration-admin-password", hash)).isTrue();
+    initializer.run(null);
+    assertThat(users.count()).isEqualTo(3);
+    assertThat(users.findByUsername("admin").orElseThrow().getPasswordHash()).isEqualTo(hash);
+  }
+
+  @Test
+  void disabledUsersCannotAuthenticate() throws Exception {
+    jdbc.update("UPDATE users SET enabled = false WHERE username = 'customer1'");
+    try {
+      assertThat(
+              get(port, "/api/v1/status", "customer1", "integration-customer1-password")
+                  .statusCode())
+          .isEqualTo(401);
+    } finally {
+      jdbc.update("UPDATE users SET enabled = true WHERE username = 'customer1'");
     }
   }
 }

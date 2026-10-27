@@ -1,4 +1,7 @@
 spring:
+  profiles:
+    group:
+      local: demo
   application:
     name: boka
   datasource:
@@ -7,6 +10,7 @@ spring:
     password: ${POSTGRES_PASSWORD}
     hikari:
       connection-timeout: 5000
+      connection-init-sql: "SET lock_timeout = '5s'; SET statement_timeout = '10s'"
   jpa:
     open-in-view: false
     hibernate:

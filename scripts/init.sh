@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if [[ -e .env ]]; then
-  echo '.env exists; preserving all values.'
-  exit 0
-fi
 umask 077
-secret=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
-(set -o noclobber; sed "s/replace-with-generated-local-secret/$secret/" .env.example > .env)
-echo 'Created private .env with a generated database password.'
+if [[ ! -e .env ]]; then
+  (set -o noclobber; : > .env)
+fi
+added=0
+while IFS='=' read -r key value; do
+  [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
+  if ! grep -q "^${key}=" .env; then
+    if [[ "$key" == *PASSWORD ]]; then
+      value=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+    fi
+    printf '%s=%s\n' "$key" "$value" >> .env
+    added=$((added + 1))
+  fi
+done < .env.example
+printf 'Added %s missing local settings; existing values preserved.\n' "$added"

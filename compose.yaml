@@ -20,6 +20,10 @@ services:
   app:
     build: .
     environment:
+      SPRING_PROFILES_ACTIVE: demo
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?Run make init}
+      DEMO_CUSTOMER1_PASSWORD: ${DEMO_CUSTOMER1_PASSWORD:?Run make init}
+      DEMO_CUSTOMER2_PASSWORD: ${DEMO_CUSTOMER2_PASSWORD:?Run make init}
       DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
