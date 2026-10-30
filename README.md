@@ -1,6 +1,6 @@
 # boka
 
-A concurrency-safe appointment reservation API learning project using Java, Spring Boot, and PostgreSQL. The current version supports demo authentication, admin-created providers and non-overlapping slots, and authenticated slot browsing. Reservation holds and confirmation are the next milestone.
+A concurrency-safe appointment reservation API learning project using Java, Spring Boot, and PostgreSQL. The current version supports demo authentication, admin-created providers and non-overlapping slots, and authenticated slot browsing. Milestone 3 is in progress: reservation persistence and domain hold/confirmation rules are implemented; transactional booking workflows and their HTTP endpoints are pending.
 
 ## Quick start
 
@@ -72,3 +72,11 @@ Slots use UTC instants and PostgreSQL `timestamptz`, normalized to microsecond p
 Errors use `application/problem+json`: invalid input 400, absent/bad credentials 401, forbidden roles/routes 403, missing/inactive provider 404, and overlapping slots 409. For negative examples: omit credentials from the status request (401), create a provider as `customer1` (403), repeat an identical slot creation (409), or submit a timestamp without its offset (400). Unknown routes default to deny. SQL and stack traces are not included in API error responses.
 
 Authentication is stateless and creates no login session. CSRF protection is disabled for this non-browser API exercise; HTTP Basic can still be vulnerable to CSRF in browsers, so revisit this before adding browser clients. Basic credentials require HTTPS outside localhost. Management health remains internal to the Docker network and exposes no component details.
+
+## Reservation foundation (Milestone 3, slice 3.1)
+
+V4 adds the reservations table and a partial unique index allowing at most one `HELD` or `CONFIRMED` reservation per slot. Historical `EXPIRED`/`CANCELLED` rows are retained. A past deadline alone does not release an active row; confirmed reservations remain occupied after their original hold deadline.
+
+The domain model validates microsecond precision, positive hold duration, future slot start, and confirmation strictly before both the deadline and slot start. Repeating confirmation preserves the original confirmed state/timestamps. Tests demonstrate JPA dirty checking, rollback after flush, migration from an existing V3 schema, and competing writes on independent PostgreSQL connections.
+
+Run `make verify` to exercise this slice, or `make up` to apply the additive V4 migration through normal startup. Slot-first locking, fresh database time, configured hold duration, ownership, expiry-on-acquire, reservation-aware availability, and the required idempotent HTTP contract remain pending. Existing security rules continue to deny reservation routes.

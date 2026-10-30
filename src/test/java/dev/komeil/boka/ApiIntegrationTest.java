@@ -60,6 +60,7 @@ abstract class ApiIntegrationTest {
 
   @BeforeEach
   void cleanCatalog() {
+    jdbc.update("DELETE FROM reservations");
     jdbc.update("DELETE FROM appointment_slots");
     providers.deleteAll();
   }
