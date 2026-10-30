@@ -1,6 +1,6 @@
 # boka
 
-A concurrency-safe appointment reservation API learning project using Java, Spring Boot, and PostgreSQL. The current version supports demo authentication, admin-created providers and non-overlapping slots, and authenticated slot browsing. Milestone 3 is in progress: reservation persistence and domain hold/confirmation rules are implemented; transactional booking workflows and their HTTP endpoints are pending.
+A concurrency-safe appointment reservation API learning project using Java, Spring Boot, and PostgreSQL. The current version supports demo authentication, admin-created providers and non-overlapping slots, and authenticated slot browsing. Milestone 3 is in progress: reservation persistence, domain rules and transactional hold acquisition are implemented; confirmation orchestration and reservation HTTP endpoints are pending.
 
 ## Quick start
 
@@ -79,4 +79,12 @@ V4 adds the reservations table and a partial unique index allowing at most one `
 
 The domain model validates microsecond precision, positive hold duration, future slot start, and confirmation strictly before both the deadline and slot start. Repeating confirmation preserves the original confirmed state/timestamps. Tests demonstrate JPA dirty checking, rollback after flush, migration from an existing V3 schema, and competing writes on independent PostgreSQL connections.
 
-Run `make verify` to exercise this slice, or `make up` to apply the additive V4 migration through normal startup. Slot-first locking, fresh database time, configured hold duration, ownership, expiry-on-acquire, reservation-aware availability, and the required idempotent HTTP contract remain pending. Existing security rules continue to deny reservation routes.
+Run `make verify` to exercise this slice, or `make up` to apply the additive V4 migration through normal startup. Slice 3.2 now implements slot-first locking, fresh database time, configured hold duration, customer-bound service authorization and expiry-on-acquire. Confirmation orchestration, reservation-aware availability and the required idempotent HTTP contract remain pending. Existing security rules continue to deny reservation routes.
+
+## Transactional hold acquisition (Milestone 3, slice 3.2)
+
+`ReservationHoldService.acquireHold(slotId, customerUsername)` is an internal Spring application service. Its method-security guard requires an authenticated customer whose name matches the supplied username; it also checks the persisted account's enabled state and role. The service locks the slot with a JPA pessimistic write lock, reloads state, samples PostgreSQL `clock_timestamp()`, and either rejects occupancy or atomically expires an overdue hold and creates a replacement. It flushes the expiry before inserting the replacement so the active-slot unique index is released in the right order. Replacement failure rolls the whole operation back.
+
+The default hold duration is five minutes. Set optional `BOKA_RESERVATION_HOLD_DURATION=PT45S` in your local environment/`.env` to change it; supported values are 1 second through 24 hours at microsecond precision. Restart the app after changing it. Compose forwards the setting with a five-minute fallback; the local run script exports `.env`. This slice adds no migration.
+
+Use `make verify` for the complete suite. Reservation HTTP routes remain denied until their remaining orchestration and idempotency contract are ready. The internal service currently creates a new hold or raises a business conflict; it does not promise retry replay. Future confirmation/cancellation/expiry writers must follow the same slot-first lock order.

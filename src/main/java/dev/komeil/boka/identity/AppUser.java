@@ -33,6 +33,10 @@ public class AppUser {
     return username.strip().toLowerCase(Locale.ROOT);
   }
 
+  public UUID getId() {
+    return id;
+  }
+
   public String getUsername() {
     return username;
   }

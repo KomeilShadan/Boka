@@ -112,6 +112,27 @@ class ReservationTest {
     assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.HELD);
   }
 
+  @Test
+  void expiresOnlyHeldReservationsAtOrAfterDeadline() {
+    var reservation = held();
+    assertThat(reservation.expireIfDue(deadline.minusNanos(1000))).isFalse();
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.HELD);
+    assertThat(reservation.expireIfDue(deadline)).isTrue();
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(deadline);
+    assertThat(reservation.expireIfDue(deadline.plusSeconds(1))).isFalse();
+    assertThat(reservation.getUpdatedAt()).isEqualTo(deadline);
+  }
+
+  @Test
+  void neverExpiresConfirmedReservationsWithTheOldHoldDeadline() {
+    var reservation = held();
+    reservation.confirm(now.plusSeconds(1), slotStartsAt);
+    assertThat(reservation.expireIfDue(deadline.plusSeconds(1))).isFalse();
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(now.plusSeconds(1));
+  }
+
   private Reservation held() {
     return Reservation.hold(slotId, customerId, now, deadline, slotStartsAt);
   }

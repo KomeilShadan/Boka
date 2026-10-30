@@ -81,6 +81,14 @@ public class Reservation {
     updatedAt = confirmedAt;
   }
 
+  public boolean expireIfDue(Instant now) {
+    var evaluatedAt = micros(now);
+    if (status != ReservationStatus.HELD || evaluatedAt.isBefore(expiresAt)) return false;
+    status = ReservationStatus.EXPIRED;
+    updatedAt = evaluatedAt;
+    return true;
+  }
+
   private static Instant micros(Instant instant) {
     return Objects.requireNonNull(instant).truncatedTo(ChronoUnit.MICROS);
   }

@@ -36,3 +36,6 @@ management:
           include: readinessState,db
         liveness:
           include: livenessState
+boka:
+  reservation:
+    hold-duration: PT5M
