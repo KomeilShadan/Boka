@@ -133,6 +133,27 @@ class ReservationTest {
     assertThat(reservation.getUpdatedAt()).isEqualTo(now.plusSeconds(1));
   }
 
+  @Test
+  void confirmationUsesDatabasePrecisionWithoutChangingTheDeadline() {
+    var reservation = held();
+    reservation.confirm(now.plusSeconds(60).plusNanos(123456789), slotStartsAt);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(now.plusSeconds(60).plusNanos(123456000));
+    assertThat(reservation.getCreatedAt()).isEqualTo(now);
+    assertThat(reservation.getExpiresAt()).isEqualTo(deadline);
+  }
+
+  @Test
+  void expiredReservationCannotBeConfirmedOrHaveItsTimestampChanged() {
+    var reservation = held();
+    reservation.expireIfDue(deadline);
+    assertThatThrownBy(() -> reservation.confirm(deadline.plusSeconds(1), slotStartsAt))
+        .isInstanceOf(ReservationConflictException.class)
+        .hasMessage("Reservation cannot be confirmed from EXPIRED");
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(deadline);
+    assertThat(reservation.getExpiresAt()).isEqualTo(deadline);
+  }
+
   private Reservation held() {
     return Reservation.hold(slotId, customerId, now, deadline, slotStartsAt);
   }

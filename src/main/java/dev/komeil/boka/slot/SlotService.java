@@ -26,7 +26,13 @@ public class SlotService {
 
   @Transactional(timeout = 10)
   public SlotResponse create(UUID providerId, CreateSlotRequest request) {
-    var provider = activeProvider(providerId);
+    // Serialize competing inserts before they enter the GiST exclusion check.
+    var provider =
+        providers
+            .lockById(providerId)
+            .filter(Provider::isActive)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Provider not found"));
     AppointmentSlot slot;
     try {
       slot =

@@ -8,6 +8,12 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ReservationRepository extends JpaRepository<Reservation, UUID> {
+  @Query("select r.slotId from Reservation r where r.id = :id and r.customerId = :customerId")
+  Optional<UUID> findSlotIdByIdAndCustomerId(
+      @Param("id") UUID id, @Param("customerId") UUID customerId);
+
+  Optional<Reservation> findByIdAndCustomerIdAndSlotId(UUID id, UUID customerId, UUID slotId);
+
   @Query(
       value =
           "SELECT * FROM reservations WHERE slot_id = :slotId AND status IN ('HELD', 'CONFIRMED')",
