@@ -54,9 +54,10 @@ public class SlotService {
           HttpStatus.BAD_REQUEST, "Browse window must be positive and at most 31 days");
     }
     activeProvider(providerId);
-    var result = slots.browse(providerId, from, to, clock.instant(), PageRequest.of(page, size));
+    var now = slots.currentDatabaseTime();
+    var result = slots.browse(providerId, from, to, now, PageRequest.of(page, size));
     return new SlotPage(
-        result.getContent().stream().map(SlotResponse::from).toList(),
+        result.getContent(),
         result.getNumber(),
         result.getSize(),
         result.getTotalElements(),

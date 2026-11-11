@@ -44,6 +44,7 @@ class ReservationMigrationIT {
     var flyway =
         Flyway.configure()
             .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+            .target("4")
             .load();
     assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
     assertThat(flyway.migrate().migrationsExecuted).isZero();

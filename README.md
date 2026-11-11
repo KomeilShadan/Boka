@@ -2,7 +2,7 @@
 
 Boka is a learning project for an appointment reservation API built with Java, Spring Boot, and PostgreSQL. It focuses on correctness under concurrent requests.
 
-The current API supports demo authentication, administrator-created providers, non-overlapping slots, and authenticated slot browsing. Milestone 3 is in progress. The implementation includes reservation persistence, domain rules, and transactional hold and confirmation services. Reservation-aware availability and reservation HTTP endpoints remain pending.
+The current API supports demo authentication, administrator-created providers, non-overlapping slots, and authenticated slot browsing. Milestone 3 implements the internal reservation foundation: persistence, domain rules, transactional hold/confirmation services and reservation-aware availability. Slice 4.1 adds internal creation idempotency. Reservation HTTP endpoints remain pending.
 
 ## Quick start
 
@@ -83,7 +83,7 @@ curl --fail-with-body --user "customer1:$DEMO_CUSTOMER1_PASSWORD" --get \
 
 Browse windows select slot starts in `[from,to)` and exclude slots that already started. Windows must be positive and at most 31 days. Pages start at 0, with a maximum of 10000. Page size defaults to 20 and must be between 1 and 100. Results sort by start, then UUID.
 
-At this stage, the response marks all returned slots as available. Reservation-aware availability arrives with the booking milestone. Inactive or missing providers return 404.
+Browse includes both available and occupied future slots. A live hold or CONFIRMED reservation returns available=false. An overdue hold or terminal history does not block logical availability. The query uses a sampled database time. Another request can claim a slot after browsing, so acquisition must recheck under its slot lock. Inactive or missing providers return 404.
 
 Slots use UTC instants and PostgreSQL `timestamptz` at microsecond precision. Slot creation locks the provider row to serialize competing application requests. A GiST exclusion constraint also prevents overlap, including writes that bypass the application. Adjacent slots are valid. The migration installs PostgreSQL's `btree_gist` extension. The migration role needs permission to install it. Flyway owns schema changes, and Hibernate validates the schema.
 
@@ -118,7 +118,7 @@ Tests demonstrate JPA dirty checking, rollback after flush, migration from an ex
 
 Run `make verify` to exercise this slice. Run `make up` to apply the additive V4 migration through normal startup. Slice 3.2 implements slot-first locking, fresh database time, configured hold duration, customer-bound service authorization, and expiry-on-acquire.
 
-Reservation-aware availability and the required idempotent HTTP contract remain pending. Slice 3.3 implements internal confirmation orchestration. Existing security rules continue to deny reservation routes.
+Reservation-aware availability is implemented in slice 3.4. Slice 4.1 implements the internal creation replay contract. HTTP integration remains pending. Slice 3.3 implements internal confirmation orchestration. Existing security rules continue to deny reservation routes.
 
 ## Transactional hold acquisition (Milestone 3, slice 3.2)
 
@@ -145,4 +145,28 @@ A live hold confirms only before its deadline and slot start. Repeating confirma
 
 The service flushes inside its transaction and returns a response DTO. An enclosing transaction failure still rolls back the update. The algorithm assumes the existing PostgreSQL READ COMMITTED isolation and uses the same slot lock as hold acquisition. Its transaction timeout is ten seconds.
 
-Run `make verify` for ownership, state, rollback and independent-connection race tests. HTTP routes remain denied while the reservation API contract is incomplete. The MVP includes no payment module.
+Run `make verify` for ownership, state, rollback and independent-connection race tests. HTTP routes remain denied while the reservation API contract is incomplete.
+
+Payments are not implemented. The revised roadmap includes full funding before confirmation, refunds, disputes, wallets, a double-entry general ledger, BNPL, Excel reports and recovery. The planned wallet supports customer top-ups, booking payments and withdrawals, plus provider balances and payouts. Both provider-managed BNPL and Boka-managed installments are planned. Installments use a separate credit-approval gate rather than claiming full cash payment. These features are not implemented. The current payment-free confirmation service remains internal. Production security and payment activation remain pending.
+
+
+## Reservation-aware availability (Milestone 3, slice 3.4)
+
+The existing authenticated slot browse route now calculates occupancy. SlotRepository projects directly into SlotResponse with a correlated NOT EXISTS check. It returns no reservation/customer identifiers. Historical rows do not duplicate slots or page counts.
+
+SlotService samples PostgreSQL clock_timestamp() once. Content and count reuse that cutoff for future-start filtering, and content uses it for hold expiry. Deadline equality means expired. CONFIRMED remains occupied after its original hold deadline. Browse neither changes reservation state nor takes booking row locks.
+
+Availability describes committed state at read time and can become stale immediately. Content/count statements and later pages are not one global snapshot under READ COMMITTED. Acquisition still rechecks under a slot lock and performs overdue cleanup before replacement.
+
+Run make verify for deadline, state, paging, privacy, bounded-query and concurrent-writer checks. The recorded slice verification passed 20 unit tests and 66 PostgreSQL integration tests. Run make up for Docker. Reservation mutation routes remain denied. Slice 4.1 adds internal creation idempotency. HTTP integration remains pending.
+
+
+## Idempotent creation (Milestone 4, slice 4.1)
+
+ReservationCreationService.create(slotId, key, customerUsername) is the internal retry-safe entry point. It reuses ReservationHoldService inside the same transaction. V5 adds durable request records with a unique customer/operation/key constraint. Existing migrations remain unchanged.
+
+A new request creates the hold and stores its original 201 status and JSON body. Identical retries return those exact values, even after confirmation or expiry. The replay does not extend expiry or recreate a booking. Reusing a key for another slot raises a domain conflict. Keys are case-sensitive ASCII values of 1–128 letters, digits, dots, underscores, colons or hyphens.
+
+PostgreSQL ON CONFLICT coordinates concurrent claims. Authorization and persisted account checks precede replay. Business/storage failures roll back both claim and hold. Successful records currently have no TTL. The service returns stored JSON text, which the future controller must write without quoting it again.
+
+Run make verify for key, replay, ownership, rollback, concurrency and V4-to-V5 migration tests. The recorded verification passed 22 unit tests and 84 PostgreSQL integration tests. Reservation mutation HTTP routes remain denied. Next is slice 4.2, owned cancellation. Payments, wallets and accounting remain planned.

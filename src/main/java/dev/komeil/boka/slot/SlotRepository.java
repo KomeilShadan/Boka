@@ -16,14 +16,28 @@ public interface SlotRepository extends JpaRepository<AppointmentSlot, UUID> {
   @Query("select s from AppointmentSlot s where s.id = :id")
   Optional<AppointmentSlot> lockById(@Param("id") UUID id);
 
+  @Query(value = "SELECT clock_timestamp()", nativeQuery = true)
+  Instant currentDatabaseTime();
+
   @Query(
-      """
-      select s from AppointmentSlot s
-      where s.provider.id = :providerId and s.startsAt >= :from and s.startsAt < :to
-        and s.startsAt > :now
-      order by s.startsAt, s.id
-      """)
-  Page<AppointmentSlot> browse(
+      value =
+          """
+          select s.id, s.provider.id, s.startsAt, s.endsAt,
+            not exists (
+              select r.id from Reservation r where r.slotId = s.id
+                and (r.status = CONFIRMED or (r.status = HELD and r.expiresAt > :now)))
+          from AppointmentSlot s
+          where s.provider.id = :providerId and s.startsAt >= :from and s.startsAt < :to
+            and s.startsAt > :now
+          order by s.startsAt, s.id
+          """,
+      countQuery =
+          """
+          select count(s) from AppointmentSlot s
+          where s.provider.id = :providerId and s.startsAt >= :from and s.startsAt < :to
+            and s.startsAt > :now
+          """)
+  Page<SlotResponse> browse(
       @Param("providerId") UUID providerId,
       @Param("from") Instant from,
       @Param("to") Instant to,

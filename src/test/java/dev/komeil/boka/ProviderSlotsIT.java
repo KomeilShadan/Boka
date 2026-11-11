@@ -168,7 +168,11 @@ class ProviderSlotsIT extends ApiIntegrationTest {
     slots.saveAndFlush(
         new AppointmentSlot(provider, NOW.plusSeconds(180), NOW.plusSeconds(240), NOW));
     jdbc.update(
-        "INSERT INTO appointment_slots VALUES (gen_random_uuid(), ?, '2029-12-31T23:00:00Z', '2029-12-31T23:30:00Z', now())",
+        """
+        INSERT INTO appointment_slots VALUES
+        (gen_random_uuid(), ?, statement_timestamp() - interval '1 hour',
+          statement_timestamp() - interval '30 minutes', statement_timestamp())
+        """,
         provider.getId());
     String range = window(id, "2029-12-31T00:00:00Z", "2030-01-02T00:00:00Z");
     var page0 = call("GET", range + "&size=2", "customer1", null);
