@@ -89,6 +89,26 @@ public class Reservation {
     return true;
   }
 
+  public void cancel(Instant now, Instant slotStartsAt) {
+    var cancelledAt = micros(now);
+    var startsAt = micros(slotStartsAt);
+    if (status == ReservationStatus.CANCELLED) return;
+    if (status != ReservationStatus.HELD && status != ReservationStatus.CONFIRMED) {
+      throw new ReservationConflictException("Reservation cannot be cancelled from " + status);
+    }
+    if (cancelledAt.isBefore(updatedAt)) {
+      throw new IllegalArgumentException("Cancellation time cannot precede the last update");
+    }
+    if (status == ReservationStatus.HELD && !cancelledAt.isBefore(expiresAt)) {
+      throw new ReservationConflictException("Hold has expired");
+    }
+    if (!cancelledAt.isBefore(startsAt)) {
+      throw new ReservationConflictException("Slot has already started");
+    }
+    status = ReservationStatus.CANCELLED;
+    updatedAt = cancelledAt;
+  }
+
   private static Instant micros(Instant instant) {
     return Objects.requireNonNull(instant).truncatedTo(ChronoUnit.MICROS);
   }

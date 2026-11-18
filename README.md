@@ -2,7 +2,7 @@
 
 Boka is a learning project for an appointment reservation API built with Java, Spring Boot, and PostgreSQL. It focuses on correctness under concurrent requests.
 
-The current API supports demo authentication, administrator-created providers, non-overlapping slots, and authenticated slot browsing. Milestone 3 implements the internal reservation foundation: persistence, domain rules, transactional hold/confirmation services and reservation-aware availability. Slice 4.1 adds internal creation idempotency. Reservation HTTP endpoints remain pending.
+The current API supports demo authentication, administrator-created providers, non-overlapping slots, and authenticated slot browsing. Milestone 3 implements the internal reservation foundation: persistence, domain rules, transactional hold/confirmation services and reservation-aware availability. Slices 4.1 and 4.2 add internal creation replay and owned cancellation. Reservation HTTP endpoints remain pending.
 
 ## Quick start
 
@@ -132,7 +132,7 @@ The default hold duration is five minutes. To change it, set optional `BOKA_RESE
 
 Compose forwards the setting with a five-minute fallback. The local run script exports `.env`. This slice adds no migration.
 
-Use `make verify` for the complete suite. Reservation HTTP routes remain denied until their remaining orchestration and idempotency contract are ready. The internal service creates a new hold or raises a business conflict. It does not promise retry replay. Confirmation uses the same slot-first lock order. Future cancellation and expiry writers must follow it too.
+Use `make verify` for the complete suite. Reservation HTTP routes remain denied until their remaining orchestration and idempotency contract are ready. The internal service creates a new hold or raises a business conflict. It does not promise retry replay. Confirmation uses the same slot-first lock order. Cancellation follows the same lock order. The planned expiry worker will use it too.
 
 
 ## Transactional confirmation (Milestone 3, slice 3.3)
@@ -169,4 +169,13 @@ A new request creates the hold and stores its original 201 status and JSON body.
 
 PostgreSQL ON CONFLICT coordinates concurrent claims. Authorization and persisted account checks precede replay. Business/storage failures roll back both claim and hold. Successful records currently have no TTL. The service returns stored JSON text, which the future controller must write without quoting it again.
 
-Run make verify for key, replay, ownership, rollback, concurrency and V4-to-V5 migration tests. The recorded verification passed 22 unit tests and 84 PostgreSQL integration tests. Reservation mutation HTTP routes remain denied. Next is slice 4.2, owned cancellation. Payments, wallets and accounting remain planned.
+Run make verify for key, replay, ownership, rollback, concurrency and V4-to-V5 migration tests. The recorded verification passed 22 unit tests and 84 PostgreSQL integration tests. Reservation mutation HTTP routes remain denied. Slice 4.2 adds internal owned cancellation. Payments, wallets and accounting remain planned.
+
+
+## Owned cancellation (Milestone 4, slice 4.2)
+
+ReservationCancellationService cancels an owned live hold or confirmed reservation before the slot starts. An overdue hold follows the expiry path. A repeated cancellation returns the same status and timestamp, even after rebooking.
+
+Cancellation and confirmation use the same owner lookup and PostgreSQL slot lock. The service checks current state and database time after locking. The CANCELLED transition releases the slot on commit. A rollback restores the previous state.
+
+Run make verify for cancellation rules, ownership, rollback and lock races. Run make up for the local API. Reservation mutation routes remain closed. Next is slice 4.3, bounded expiry worker.

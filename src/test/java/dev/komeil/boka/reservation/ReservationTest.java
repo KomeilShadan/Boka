@@ -157,4 +157,56 @@ class ReservationTest {
   private Reservation held() {
     return Reservation.hold(slotId, customerId, now, deadline, slotStartsAt);
   }
+
+  @Test
+  void cancelsLiveHoldAtDatabasePrecisionAndPreservesOriginalCancellationOnRetry() {
+    var reservation = held();
+    var cancellation = deadline.minusNanos(1000);
+    reservation.cancel(cancellation.plusNanos(999), slotStartsAt);
+    reservation.cancel(slotStartsAt.plusSeconds(1), slotStartsAt);
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(cancellation);
+    assertThat(reservation.getExpiresAt()).isEqualTo(deadline);
+    assertThat(reservation.expireIfDue(slotStartsAt)).isFalse();
+    assertThatThrownBy(() -> reservation.confirm(cancellation, slotStartsAt))
+        .isInstanceOf(ReservationConflictException.class);
+  }
+
+  @Test
+  void rejectsCancellationOfOverdueAndExpiredHolds() {
+    var reservation = held();
+    assertThatThrownBy(() -> reservation.cancel(deadline, slotStartsAt))
+        .isInstanceOf(ReservationConflictException.class)
+        .hasMessage("Hold has expired");
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.HELD);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(now);
+    reservation.expireIfDue(deadline);
+    assertThatThrownBy(() -> reservation.cancel(deadline.plusSeconds(1), slotStartsAt))
+        .isInstanceOf(ReservationConflictException.class)
+        .hasMessage("Reservation cannot be cancelled from EXPIRED");
+    assertThat(reservation.getUpdatedAt()).isEqualTo(deadline);
+  }
+
+  @Test
+  void confirmedCancellationUsesSlotStartInsteadOfOldHoldDeadline() {
+    var reservation = held();
+    reservation.confirm(now.plusSeconds(1), slotStartsAt);
+    assertThatThrownBy(() -> reservation.cancel(slotStartsAt, slotStartsAt))
+        .isInstanceOf(ReservationConflictException.class)
+        .hasMessage("Slot has already started");
+    var cancellation = slotStartsAt.minusNanos(1000);
+    reservation.cancel(cancellation, slotStartsAt);
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CANCELLED);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(cancellation);
+  }
+
+  @Test
+  void rejectsCancellationBeforeLastUpdate() {
+    var reservation = held();
+    var confirmation = now.plusSeconds(1);
+    reservation.confirm(confirmation, slotStartsAt);
+    assertThatIllegalArgumentException().isThrownBy(() -> reservation.cancel(now, slotStartsAt));
+    assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.CONFIRMED);
+    assertThat(reservation.getUpdatedAt()).isEqualTo(confirmation);
+  }
 }
