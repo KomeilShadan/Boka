@@ -14,6 +14,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class SlotService {
+  // PostgreSQL's finite timestamptz range in UTC, at microsecond precision.
+  private static final Instant MIN_POSTGRES_TIMESTAMP = Instant.parse("-4713-11-24T00:00:00Z");
+  private static final Instant MAX_POSTGRES_TIMESTAMP =
+      Instant.parse("+294276-12-31T23:59:59.999999Z");
+
   private final ProviderRepository providers;
   private final SlotRepository slots;
   private final Clock clock;
@@ -44,6 +49,7 @@ public class SlotService {
     } catch (IllegalArgumentException exception) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage());
     }
+    requireSupportedTimestamps(slot.getStartsAt(), slot.getEndsAt(), MAX_POSTGRES_TIMESTAMP);
     return SlotResponse.from(slots.saveAndFlush(slot));
   }
 
@@ -53,6 +59,8 @@ public class SlotService {
       throw new ResponseStatusException(
           HttpStatus.BAD_REQUEST, "Browse window must be positive and at most 31 days");
     }
+    // pgJDBC rounds fractional microseconds when binding browse parameters.
+    requireSupportedTimestamps(from, to, MAX_POSTGRES_TIMESTAMP.plusNanos(499));
     activeProvider(providerId);
     var now = slots.currentDatabaseTime();
     var result = slots.browse(providerId, from, to, now, PageRequest.of(page, size));
@@ -62,6 +70,13 @@ public class SlotService {
         result.getSize(),
         result.getTotalElements(),
         result.getTotalPages());
+  }
+
+  private static void requireSupportedTimestamps(Instant start, Instant end, Instant latest) {
+    if (start.isBefore(MIN_POSTGRES_TIMESTAMP) || end.isAfter(latest)) {
+      throw new ResponseStatusException(
+          HttpStatus.BAD_REQUEST, "Slot timestamps are outside the supported range");
+    }
   }
 
   private Provider activeProvider(UUID id) {

@@ -35,8 +35,10 @@ public class DemoUsersInitializer implements ApplicationRunner {
   }
 
   private void seed(String username, String password, Role role) {
+    // Skip BCrypt when the account exists. PostgreSQL handles concurrent inserts.
     if (users.findByUsername(username).isEmpty()) {
-      users.save(new AppUser(username, encoder.encode(password), role, clock.instant()));
+      users.insertIfUsernameMissing(
+          username, encoder.encode(password), role.name(), clock.instant());
     }
   }
 }

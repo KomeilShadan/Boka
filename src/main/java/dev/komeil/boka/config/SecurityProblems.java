@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -26,6 +27,14 @@ public class SecurityProblems implements AuthenticationEntryPoint, AccessDeniedH
   public void commence(
       HttpServletRequest request, HttpServletResponse response, AuthenticationException exception)
       throws IOException {
+    if (exception instanceof AuthenticationServiceException) {
+      write(
+          request,
+          response,
+          HttpStatus.SERVICE_UNAVAILABLE,
+          "Authentication service is unavailable");
+      return;
+    }
     response.setHeader("WWW-Authenticate", "Basic realm=\"boka\"");
     write(request, response, HttpStatus.UNAUTHORIZED, "Valid credentials are required");
   }

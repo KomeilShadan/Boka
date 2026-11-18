@@ -33,11 +33,11 @@ make infra-up
 make run         # local profile; first stop container app if already running
 make test        # fast tests, no Docker
 make integration-test  # fresh disposable PostgreSQL; never development DB
-make verify      # formatter + unit tests + integration tests
+make verify      # setup script, formatter, and test suites
 make build       # executable JAR and unit tests
 ```
 
-`make help` lists current commands. Monitoring, authenticated smoke, and load-test targets arrive with their milestones. HTTP Basic serves non-browser local API clients. No reservation endpoints exist yet.
+`make help` lists current commands. The `local` profile binds the API and management ports to `127.0.0.1`. HTTP Basic serves local API clients. Reservation HTTP endpoints remain pending.
 
 To use IntelliJ:
 
@@ -55,7 +55,7 @@ The required variables are `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, 
 
 `make up` explicitly enables the `demo` profile. `make run` uses `local`, which includes `demo`. On first startup, these profiles seed `admin`, `customer1`, and `customer2` with BCrypt password hashes.
 
-The initializer preserves existing accounts on restart. A password change in `.env` does not rotate a seeded account's password. Other profiles seed no users. User registration and credential rotation are outside this milestone.
+Demo passwords must have a Java string length of at least 12 and fit within BCrypt's limit of 72 UTF-8 bytes. The initializer preserves existing accounts and passwords, including during concurrent startup. Other profiles seed no users.
 
 Use the environment loaded above. All business routes require HTTP Basic. Only administrators can create providers and slots. Both customers can browse. These examples use fictional data and future dates. Adjust the dates when needed.
 
@@ -87,6 +87,8 @@ Browse includes both available and occupied future slots. A live hold or CONFIRM
 
 Slots use UTC instants and PostgreSQL `timestamptz` at microsecond precision. Slot creation locks the provider row to serialize competing application requests. A GiST exclusion constraint also prevents overlap, including writes that bypass the application. Adjacent slots are valid. The migration installs PostgreSQL's `btree_gist` extension. The migration role needs permission to install it. Flyway owns schema changes, and Hibernate validates the schema.
 
+Slot creation and browsing return 400 for timestamps outside the supported database range.
+
 Errors use `application/problem+json`:
 
 | Outcome | Status |
@@ -96,6 +98,7 @@ Errors use `application/problem+json`:
 | Forbidden role or route | 403 |
 | Missing or inactive provider | 404 |
 | Overlapping slots | 409 |
+| Authentication service unavailable | 503 |
 
 For negative examples:
 

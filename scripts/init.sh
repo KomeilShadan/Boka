@@ -8,9 +8,12 @@ fi
 added=0
 while IFS='=' read -r key value; do
   [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || continue
-  if ! grep -q "^${key}=" .env; then
+  if ! grep -Eq "^[[:blank:]]*(export[[:blank:]]+)?${key}[[:blank:]]*=" .env; then
     if [[ "$key" == *PASSWORD ]]; then
       value=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+    fi
+    if [[ -s .env && -n "$(tail -c 1 .env)" ]]; then
+      printf '\n' >> .env
     fi
     printf '%s=%s\n' "$key" "$value" >> .env
     added=$((added + 1))

@@ -20,15 +20,6 @@ public class AppUser {
 
   protected AppUser() {}
 
-  public AppUser(String username, String passwordHash, Role role, Instant createdAt) {
-    this.id = UUID.randomUUID();
-    this.username = normalize(username);
-    this.passwordHash = passwordHash;
-    this.role = role;
-    this.enabled = true;
-    this.createdAt = createdAt;
-  }
-
   public static String normalize(String username) {
     return username.strip().toLowerCase(Locale.ROOT);
   }

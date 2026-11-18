@@ -3,17 +3,25 @@ package dev.komeil.boka;
 import static org.assertj.core.api.Assertions.*;
 
 import dev.komeil.boka.identity.DemoUsersInitializer;
+import dev.komeil.boka.identity.Role;
 import dev.komeil.boka.identity.UserRepository;
 import dev.komeil.boka.provider.Provider;
 import java.util.Locale;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 class BokaApplicationIT extends ApiIntegrationTest {
   @Autowired UserRepository users;
   @Autowired PasswordEncoder encoder;
   @Autowired DemoUsersInitializer initializer;
+  @Autowired DataSource database;
+  @Autowired PlatformTransactionManager transactionManager;
 
   @Test
   void migratedSchemaPersistsProviderAndServesItThroughHttp() throws Exception {
@@ -74,6 +82,27 @@ class BokaApplicationIT extends ApiIntegrationTest {
   }
 
   @Test
+  void authenticationLookupTimeoutReturns503AndRecovers() throws Exception {
+    try (var connection = database.getConnection();
+        var statement = connection.createStatement()) {
+      connection.setAutoCommit(false);
+      try {
+        statement.execute("LOCK TABLE users IN ACCESS EXCLUSIVE MODE");
+        var response = call("GET", "/api/v1/status", "admin", null);
+        assertThat(response.statusCode()).isEqualTo(503);
+        assertThat(response.headers().firstValue("WWW-Authenticate")).isEmpty();
+        assertThat(response.headers().firstValue("Content-Type"))
+            .hasValue("application/problem+json");
+        assertThat(json(response).get("detail").asString())
+            .isEqualTo("Authentication service is unavailable");
+      } finally {
+        connection.rollback();
+      }
+    }
+    assertThat(call("GET", "/api/v1/status", "admin", null).statusCode()).isEqualTo(200);
+  }
+
+  @Test
   void demoPasswordsAreHashedAndReseedingPreservesUsers() {
     assertThat(users.count()).isEqualTo(3);
     var hash = users.findByUsername("admin").orElseThrow().getPasswordHash();
@@ -82,6 +111,50 @@ class BokaApplicationIT extends ApiIntegrationTest {
     initializer.run(null);
     assertThat(users.count()).isEqualTo(3);
     assertThat(users.findByUsername("admin").orElseThrow().getPasswordHash()).isEqualTo(hash);
+  }
+
+  @Test
+  void demoSeedingPreservesUserInsertedByAConcurrentStartup() throws Exception {
+    var existingHash = users.findByUsername("customer2").orElseThrow().getPasswordHash();
+    jdbc.update("DELETE FROM users WHERE username = 'customer2'");
+    try (var executor = Executors.newSingleThreadExecutor()) {
+      var competingStartup =
+          new TransactionTemplate(transactionManager)
+              .execute(
+                  status -> {
+                    users.insertIfUsernameMissing(
+                        "customer2", existingHash, Role.CUSTOMER.name(), NOW);
+                    int blocker = jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class);
+                    var pending = executor.submit(() -> initializer.run(null));
+                    awaitSeedBlockedBy(blocker);
+                    return pending;
+                  });
+      competingStartup.get(10, TimeUnit.SECONDS);
+      assertThat(users.count()).isEqualTo(3);
+      assertThat(users.findByUsername("customer2").orElseThrow().getPasswordHash())
+          .isEqualTo(existingHash);
+    } finally {
+      initializer.run(null);
+    }
+  }
+
+  private void awaitSeedBlockedBy(int blocker) {
+    var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+    while (System.nanoTime() < deadline) {
+      if (Boolean.TRUE.equals(
+          jdbc.queryForObject(
+              """
+              SELECT EXISTS (
+                SELECT 1 FROM pg_locks WHERE NOT granted AND ? = ANY(pg_blocking_pids(pid))
+              )
+              """,
+              Boolean.class,
+              blocker))) {
+        return;
+      }
+      Thread.onSpinWait();
+    }
+    fail("Demo startup did not reach the PostgreSQL lock wait");
   }
 
   @Test

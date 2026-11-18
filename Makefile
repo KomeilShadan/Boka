@@ -26,7 +26,8 @@ test: ## Fast unit tests; no Docker required
 integration-test: ## PostgreSQL Testcontainers tests, including Failsafe verification
 	@docker info >/dev/null || { echo 'Docker daemon unavailable; integration tests require Docker.' >&2; exit 1; }
 	@scripts/maven.sh -B verify
-verify: ## Formatting, unit tests, integration tests; Docker required
+verify: ## Setup script, formatting, unit tests, integration tests; Docker required
+	@bash scripts/test-init.sh
 	@$(MAKE) integration-test
 fmt: ## Apply pinned Java formatter
 	@scripts/maven.sh -B spotless:apply

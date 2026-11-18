@@ -216,6 +216,62 @@ class ProviderSlotsIT extends ApiIntegrationTest {
   }
 
   @Test
+  void rejectsSlotTimestampsOutsidePostgresRange() throws Exception {
+    String id = providerId();
+    String lastMicrosecond = "+294276-12-31T23:59:59.999999Z";
+    String afterRange = "+294277-01-01T00:00:00Z";
+    var invalid =
+        call("POST", path(id), "admin", Map.of("startsAt", lastMicrosecond, "endsAt", afterRange));
+    assertProblem(invalid, 400);
+    assertThat(slots.count()).isZero();
+
+    String lastSecond = "%2B294276-12-31T23:59:59Z";
+    assertProblem(
+        call("GET", window(id, lastSecond, "%2B294277-01-01T00:00:00Z"), "customer1", null), 400);
+    assertProblem(
+        call(
+            "GET",
+            window(id, lastSecond, "%2B294276-12-31T23:59:59.999999500Z"),
+            "customer1",
+            null),
+        400);
+    assertProblem(
+        call(
+            "GET", window(id, "-4713-11-23T23:59:59Z", "-4713-11-24T00:00:00Z"), "customer1", null),
+        400);
+  }
+
+  @Test
+  void acceptsPostgresTimestampBoundaries() throws Exception {
+    String id = providerId();
+    var created =
+        call(
+            "POST",
+            path(id),
+            "admin",
+            Map.of(
+                "startsAt", "+294276-12-31T23:59:59Z",
+                "endsAt", "+294276-12-31T23:59:59.999999999Z"));
+    assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+    assertThat(json(created).get("endsAt").asString()).isEqualTo("+294276-12-31T23:59:59.999999Z");
+
+    var upper =
+        call(
+            "GET",
+            window(id, "%2B294276-12-31T23:59:59Z", "%2B294276-12-31T23:59:59.999999499Z"),
+            "customer1",
+            null);
+    assertThat(upper.statusCode()).as(upper.body()).isEqualTo(200);
+    assertThat(json(upper).get("items").size()).isEqualTo(1);
+
+    var lower =
+        call(
+            "GET", window(id, "-4713-11-24T00:00:00Z", "-4713-11-25T00:00:00Z"), "customer1", null);
+    assertThat(lower.statusCode()).as(lower.body()).isEqualTo(200);
+    assertThat(json(lower).get("items").size()).isZero();
+  }
+
+  @Test
   void browsingDoesNotFetchOneProviderPerSlot() throws Exception {
     var provider = providers.saveAndFlush(new Provider("Many slots"));
     for (int i = 1; i <= 10; i++) {
