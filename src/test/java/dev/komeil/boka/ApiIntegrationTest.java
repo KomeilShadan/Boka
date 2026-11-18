@@ -23,6 +23,7 @@ import tools.jackson.databind.*;
       "boka.demo.admin-password=integration-admin-password",
       "boka.demo.customer1-password=integration-customer1-password",
       "boka.demo.customer2-password=integration-customer2-password",
+      "boka.reservation.expiry.enabled=false",
       "spring.datasource.username=unused",
       "spring.datasource.password=unused",
       "spring.datasource.url=jdbc:postgresql://localhost/unused",

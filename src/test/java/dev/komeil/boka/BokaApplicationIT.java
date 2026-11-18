@@ -34,7 +34,7 @@ class BokaApplicationIT extends ApiIntegrationTest {
     assertThat(
             jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE success", Integer.class))
-        .isEqualTo(5);
+        .isEqualTo(6);
     assertThatThrownBy(
             () -> jdbc.update("INSERT INTO providers VALUES (gen_random_uuid(), '', true)"))
         .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);

@@ -39,3 +39,6 @@ management:
 boka:
   reservation:
     hold-duration: PT5M
+    expiry:
+      enabled: true
+      delay: PT30S

@@ -16,7 +16,7 @@ class IdempotencyMigrationIT {
   static final PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:18.6-bookworm");
 
   @Test
-  void addsV5ToAnExistingV4BookingWithoutRewritingHistory() throws Exception {
+  void addsV5AndV6ToAnExistingV4BookingWithoutRewritingHistory() throws Exception {
     Flyway.configure()
         .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
         .target("4")
@@ -51,9 +51,17 @@ class IdempotencyMigrationIT {
     var flyway =
         Flyway.configure()
             .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+            .target("5")
             .load();
     assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
     assertThat(flyway.migrate().migrationsExecuted).isZero();
+    var expiryUpgrade =
+        Flyway.configure()
+            .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+            .target("6")
+            .load();
+    assertThat(expiryUpgrade.migrate().migrationsExecuted).isEqualTo(1);
+    assertThat(expiryUpgrade.migrate().migrationsExecuted).isZero();
     try (var connection =
             DriverManager.getConnection(
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
@@ -67,6 +75,11 @@ class IdempotencyMigrationIT {
       try (var result = statement.executeQuery("SELECT count(*) FROM idempotency_records")) {
         result.next();
         assertThat(result.getInt(1)).isZero();
+      }
+      try (var result =
+          statement.executeQuery("SELECT to_regclass('reservations_held_expiry_idx')")) {
+        assertThat(result.next()).isTrue();
+        assertThat(result.getString(1)).isEqualTo("reservations_held_expiry_idx");
       }
     }
   }
