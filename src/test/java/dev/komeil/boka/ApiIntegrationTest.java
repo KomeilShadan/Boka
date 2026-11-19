@@ -76,7 +76,8 @@ abstract class ApiIntegrationTest {
     return request(port, "GET", path, username, password, null);
   }
 
-  HttpResponse<String> call(String method, String path, String username, Object body)
+  HttpResponse<String> call(
+      String method, String path, String username, Object body, String... headers)
       throws Exception {
     return request(
         port,
@@ -84,11 +85,18 @@ abstract class ApiIntegrationTest {
         path,
         username,
         username == null ? null : "integration-" + username + "-password",
-        body == null ? null : mapper.writeValueAsString(body));
+        body == null ? null : mapper.writeValueAsString(body),
+        headers);
   }
 
   HttpResponse<String> request(
-      int port, String method, String path, String username, String password, String body)
+      int port,
+      String method,
+      String path,
+      String username,
+      String password,
+      String body,
+      String... headers)
       throws Exception {
     try (var client = HttpClient.newHttpClient()) {
       var request =
@@ -100,6 +108,9 @@ abstract class ApiIntegrationTest {
                   body == null
                       ? HttpRequest.BodyPublishers.noBody()
                       : HttpRequest.BodyPublishers.ofString(body));
+      if (headers.length > 0) {
+        request.headers(headers);
+      }
       if (username != null) {
         request.header(
             "Authorization",

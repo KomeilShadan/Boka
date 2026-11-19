@@ -2,7 +2,7 @@
 
 Boka is a learning project for an appointment reservation API built with Java, Spring Boot, and PostgreSQL. It focuses on correctness under concurrent requests.
 
-The API supports demo authentication, provider administration, non-overlapping slots and authenticated browsing. The internal reservation services support holds, confirmation, creation replay and owned cancellation. A background worker expires overdue holds. Reservation HTTP endpoints remain pending.
+The API supports demo authentication, provider administration, slot browsing, retry-safe hold creation and owner-only reservation reads. A background worker expires overdue holds.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ make verify      # setup script, formatter, and test suites
 make build       # executable JAR and unit tests
 ```
 
-`make help` lists current commands. The `local` profile binds the API and management ports to `127.0.0.1`. HTTP Basic serves local API clients. Reservation HTTP endpoints remain pending.
+`make help` lists current commands. The `local` profile binds the API and management ports to `127.0.0.1`. HTTP Basic serves local API clients.
 
 To use IntelliJ:
 
@@ -121,7 +121,7 @@ Tests demonstrate JPA dirty checking, rollback after flush, migration from an ex
 
 Run `make verify` to exercise this slice. Run `make up` to apply the additive V4 migration through normal startup. Slice 3.2 implements slot-first locking, fresh database time, configured hold duration, customer-bound service authorization, and expiry-on-acquire.
 
-Reservation-aware availability is implemented in slice 3.4. Slice 4.1 implements the internal creation replay contract. HTTP integration remains pending. Slice 3.3 implements internal confirmation orchestration. Existing security rules continue to deny reservation routes.
+Slice 3.3 adds internal confirmation. Slice 3.4 adds reservation-aware availability. Slice 4.1 adds internal creation replay, which slice 4.4 exposes to demo customers.
 
 ## Transactional hold acquisition (Milestone 3, slice 3.2)
 
@@ -135,7 +135,7 @@ The default hold duration is five minutes. To change it, set optional `BOKA_RESE
 
 Compose forwards the setting with a five-minute fallback. The local run script exports `.env`. This slice adds no migration.
 
-Use `make verify` for the complete suite. Reservation HTTP routes remain denied until their remaining orchestration and idempotency contract are ready. The internal service creates a new hold or raises a business conflict. It does not promise retry replay. Confirmation, cancellation and the expiry worker use the same slot-first lock order.
+Use `make verify` for the complete suite. The hold service creates a hold or raises a conflict. The creation service adds HTTP replay. Confirmation, cancellation and the expiry worker use the same slot-first lock order.
 
 
 ## Transactional confirmation (Milestone 3, slice 3.3)
@@ -148,7 +148,7 @@ A live hold confirms only before its deadline and slot start. Repeating confirma
 
 The service flushes inside its transaction and returns a response DTO. An enclosing transaction failure still rolls back the update. The algorithm assumes the existing PostgreSQL READ COMMITTED isolation and uses the same slot lock as hold acquisition. Its transaction timeout is ten seconds.
 
-Run `make verify` for ownership, state, rollback and independent-connection race tests. HTTP routes remain denied while the reservation API contract is incomplete.
+Run `make verify` for ownership, state, rollback and independent-connection race tests. Confirmation remains internal.
 
 Payments are not implemented. The revised roadmap includes full funding before confirmation, refunds, disputes, wallets, a double-entry general ledger, BNPL, Excel reports and recovery. The planned wallet supports customer top-ups, booking payments and withdrawals, plus provider balances and payouts. Both provider-managed BNPL and Boka-managed installments are planned. Installments use a separate credit-approval gate rather than claiming full cash payment. These features are not implemented. The current payment-free confirmation service remains internal. Production security and payment activation remain pending.
 
@@ -161,7 +161,7 @@ SlotService samples PostgreSQL clock_timestamp() once. Content and count reuse t
 
 Availability describes committed state at read time and can become stale immediately. Content/count statements and later pages are not one global snapshot under READ COMMITTED. Acquisition still rechecks under a slot lock and performs overdue cleanup before replacement.
 
-Run make verify for deadline, state, paging, privacy, bounded-query and concurrent-writer checks. The recorded slice verification passed 20 unit tests and 66 PostgreSQL integration tests. Run make up for Docker. Reservation mutation routes remain denied. Slice 4.1 adds internal creation idempotency. HTTP integration remains pending.
+Run `make verify` for deadline, state, paging, privacy, bounded-query and concurrent-writer checks. Run `make up` for Docker.
 
 
 ## Idempotent creation (Milestone 4, slice 4.1)
@@ -170,9 +170,9 @@ ReservationCreationService.create(slotId, key, customerUsername) is the internal
 
 A new request creates the hold and stores its original 201 status and JSON body. Identical retries return those exact values, even after confirmation or expiry. The replay does not extend expiry or recreate a booking. Reusing a key for another slot raises a domain conflict. Keys are case-sensitive ASCII values of 1–128 letters, digits, dots, underscores, colons or hyphens.
 
-PostgreSQL ON CONFLICT coordinates concurrent claims. Authorization and persisted account checks precede replay. Business/storage failures roll back both claim and hold. Successful records currently have no TTL. The service returns stored JSON text, which the future controller must write without quoting it again.
+PostgreSQL `ON CONFLICT` coordinates concurrent claims. The service checks the account before it replays a response. A business or storage failure rolls back the key claim and any hold changes. Successful records currently have no retention deadline. The controller writes the stored JSON directly.
 
-Run make verify for key, replay, ownership, rollback, concurrency and V4-to-V5 migration tests. The recorded verification passed 22 unit tests and 84 PostgreSQL integration tests. Reservation mutation HTTP routes remain denied. Slice 4.2 adds internal owned cancellation. Payments, wallets and accounting remain planned.
+Run `make verify` for key, replay, ownership, rollback, concurrency and migration tests. Slice 4.2 adds internal owned cancellation. Payments, wallets and accounting remain planned.
 
 
 ## Owned cancellation (Milestone 4, slice 4.2)
@@ -181,7 +181,7 @@ ReservationCancellationService cancels an owned live hold or confirmed reservati
 
 Cancellation and confirmation use the same owner lookup and PostgreSQL slot lock. The service checks current state and database time after locking. The CANCELLED transition releases the slot on commit. A rollback restores the previous state.
 
-Run `make verify` for cancellation rules, ownership, rollback and lock races. Run `make up` for the local API. Reservation mutation routes remain closed.
+Run `make verify` for cancellation rules, ownership, rollback and lock races. Run `make up` for the local API. The cancellation route remains pending.
 
 ## Bounded hold expiry (Milestone 4, slice 4.3)
 
@@ -190,3 +190,43 @@ The scheduler starts after 30 seconds and waits 30 seconds after each batch. Eac
 Run `make up` to apply V6 and start the worker. Set `BOKA_RESERVATION_EXPIRY_ENABLED=false` in `.env` to pause the worker. To change the delay, set `BOKA_RESERVATION_EXPIRY_DELAY` to a positive ISO-8601 duration, such as `PT15S`. Run `make up` again to apply changes in Docker. For host development, stop and start `make run`.
 
 A hold deadline still applies when the worker is paused. Run `make verify` for batch, locking, rollback and startup recovery tests.
+
+## Create a hold over HTTP (Milestone 4, slice 4.4)
+
+Run `make up` and load `.env` as shown in Quick start. Set `slot_id` to a future, available slot UUID. Send the request as a customer in the local or demo profile.
+
+Use hyphenated UUID text for IDs in both reservation requests. Uppercase and lowercase hex digits are valid.
+
+```sh
+curl -si --user "customer1:$DEMO_CUSTOMER1_PASSWORD" \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: first-hold-001' \
+  -d "{\"slotId\":\"$slot_id\"}" \
+  "http://localhost:${APP_PORT:-8080}/api/v1/reservations"
+```
+
+The response is `201 Created` with the hold ID, slot ID, status and timestamps. Repeat the same key and slot to get the original status and JSON. The replay retains the original deadline, even after expiry. Use a new key for a new hold.
+
+| Status | Condition |
+| --- | --- |
+| 400 | Missing or invalid key or slot ID |
+| 401 | Missing or invalid credentials |
+| 403 | Customer role or local/demo profile required |
+| 404 | Slot missing or its provider inactive |
+| 409 | Slot unavailable or key already used with another slot |
+| 503 | Database connection failure at transaction start or a database operation unavailable after start |
+
+Omit the key to try `400`. Reuse a successful key with another slot UUID to try `409`. If the creation transaction rolls back, retry with the same key. If a response is lost after commit, the request replays the saved result.
+
+## Read a reservation (Milestone 4, slice 4.4)
+
+Set `reservation_id` to the `id` from your hold creation response. Send this request as the same customer in the local or demo profile.
+
+```sh
+curl -si --user "customer1:$DEMO_CUSTOMER1_PASSWORD" \
+  "http://localhost:${APP_PORT:-8080}/api/v1/reservations/$reservation_id"
+```
+
+`200 OK` returns the committed reservation status and timestamps. An overdue hold can still show `HELD` until cleanup commits `EXPIRED`. The deadline still governs confirmation.
+
+Try the same ID as `customer2` to get `404`. A missing reservation also returns `404`. An invalid UUID returns `400`. Missing or invalid credentials return `401`. Administrators and customers outside the local and demo profiles receive `403`.

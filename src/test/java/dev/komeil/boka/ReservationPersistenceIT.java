@@ -222,12 +222,8 @@ class ReservationPersistenceIT extends ApiIntegrationTest {
   }
 
   @Test
-  void reservationHttpRoutesStayDeniedUntilTheApplicationWorkflowExists() throws Exception {
+  void paymentFreeConfirmationRemainsDeniedForAllRoles() throws Exception {
     for (String username : List.of("admin", "customer1", "customer2")) {
-      assertThat(
-              call("POST", "/api/v1/reservations", username, Map.of("slotId", UUID.randomUUID()))
-                  .statusCode())
-          .isEqualTo(403);
       assertThat(
               call(
                       "POST",
@@ -237,7 +233,6 @@ class ReservationPersistenceIT extends ApiIntegrationTest {
                   .statusCode())
           .isEqualTo(403);
     }
-    assertThat(call("POST", "/api/v1/reservations", null, Map.of()).statusCode()).isEqualTo(401);
     assertThat(reservations.count()).isZero();
   }
 

@@ -15,6 +15,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, UUID> 
 
   Optional<Reservation> findByIdAndCustomerIdAndSlotId(UUID id, UUID customerId, UUID slotId);
 
+  Optional<Reservation> findByIdAndCustomerId(UUID id, UUID customerId);
+
   @Query(
       value =
           "SELECT * FROM reservations WHERE slot_id = :slotId AND status IN ('HELD', 'CONFIRMED')",

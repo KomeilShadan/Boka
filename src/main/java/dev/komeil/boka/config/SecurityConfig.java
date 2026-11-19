@@ -4,6 +4,7 @@ import jakarta.servlet.DispatcherType;
 import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -22,7 +23,8 @@ public class SecurityConfig {
   }
 
   @Bean
-  SecurityFilterChain apiSecurity(HttpSecurity http, SecurityProblems problems) throws Exception {
+  SecurityFilterChain apiSecurity(
+      HttpSecurity http, SecurityProblems problems, Environment environment) throws Exception {
     return http.csrf(AbstractHttpConfigurer::disable)
         .formLogin(AbstractHttpConfigurer::disable)
         .logout(AbstractHttpConfigurer::disable)
@@ -33,22 +35,26 @@ public class SecurityConfig {
         .exceptionHandling(
             errors -> errors.authenticationEntryPoint(problems).accessDeniedHandler(problems))
         .authorizeHttpRequests(
-            auth ->
-                auth.dispatcherTypeMatchers(DispatcherType.ERROR)
-                    .permitAll()
-                    .requestMatchers(EndpointRequest.to("health"))
-                    .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/v1/status")
-                    .authenticated()
-                    .requestMatchers(
-                        HttpMethod.POST,
-                        "/api/v1/providers",
-                        "/api/v1/providers/{providerId}/slots")
-                    .hasRole("ADMIN")
-                    .requestMatchers(HttpMethod.GET, "/api/v1/providers/{providerId}/slots")
-                    .authenticated()
-                    .anyRequest()
-                    .denyAll())
+            auth -> {
+              auth.dispatcherTypeMatchers(DispatcherType.ERROR)
+                  .permitAll()
+                  .requestMatchers(EndpointRequest.to("health"))
+                  .permitAll()
+                  .requestMatchers(HttpMethod.GET, "/api/v1/status")
+                  .authenticated()
+                  .requestMatchers(
+                      HttpMethod.POST, "/api/v1/providers", "/api/v1/providers/{providerId}/slots")
+                  .hasRole("ADMIN")
+                  .requestMatchers(HttpMethod.GET, "/api/v1/providers/{providerId}/slots")
+                  .authenticated();
+              if (environment.matchesProfiles("local", "demo")) {
+                auth.requestMatchers(HttpMethod.POST, "/api/v1/reservations")
+                    .hasRole("CUSTOMER")
+                    .requestMatchers(HttpMethod.GET, "/api/v1/reservations/{id}")
+                    .hasRole("CUSTOMER");
+              }
+              auth.anyRequest().denyAll();
+            })
         .build();
   }
 }

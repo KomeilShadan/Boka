@@ -1,10 +1,13 @@
 package dev.komeil.boka.shared;
 
 import java.sql.SQLException;
+import java.sql.SQLNonTransientConnectionException;
+import java.sql.SQLTransientConnectionException;
 import java.util.Map;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -26,9 +29,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
   }
 
   @ExceptionHandler(DataAccessException.class)
-  ProblemDetail databaseFailure(DataAccessException exception) {
+  ProblemDetail databaseFailure() {
     return ProblemDetail.forStatusAndDetail(
         HttpStatus.SERVICE_UNAVAILABLE, "Database operation could not be completed");
+  }
+
+  @ExceptionHandler(CannotCreateTransactionException.class)
+  ProblemDetail transactionStartFailure(CannotCreateTransactionException exception) {
+    for (Throwable cause = exception.getCause(); cause != null; cause = cause.getCause()) {
+      if (cause instanceof SQLException sql
+          && (sql instanceof SQLTransientConnectionException
+              || sql instanceof SQLNonTransientConnectionException
+              || (sql.getSQLState() != null && sql.getSQLState().startsWith("08")))) {
+        return databaseFailure();
+      }
+    }
+    return ProblemDetail.forStatusAndDetail(
+        HttpStatus.INTERNAL_SERVER_ERROR, "Database transaction could not be started");
   }
 
   @Override
